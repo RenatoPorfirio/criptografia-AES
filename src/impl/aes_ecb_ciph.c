@@ -1,20 +1,28 @@
 #include <string.h>
 #include <locale.h>
-#include <pthread.h>
 #include "../lib/aes.h"
 
-#ifdef __unix__         
+#ifdef __unix__
   #include <unistd.h>
-  #define NCORE sysconf(_SC_NPROCESSORS_CONF)
+  #include <pthread.h>
+  #define _CUSTOM_N_THREADS sysconf(_SC_THREADS) ? sysconf(_SC_NPROCESSORS_CONF) ? sysconf(_SC_NPROCESSORS_CONF) : 1 : 1
+  #define THREAD_HANDLE_SIZE 800
 
-#elif defined(_WIN32) || defined(WIN32) 
+#elif defined(_WIN32) || defined(WIN32)
   #define OS_Windows
   #include <windows.h>
-  LPSYSTEM_INFO lpsysteminfo;
-  GetSystemInfo(lpsysteminfo);
-  #define NCORE lpsysteminfo->dwNumberOfProcessors
-
+  #define _CUSTOM_N_THREADS 1
 #endif
+
+typedef struct {
+  size_t start, length;
+} Range;
+
+void memcopy(uint8_t* trg, uint8_t* src, size_t start, size_t src_size){
+  for(size_t i = 0; i < src_size; i++){
+    trg[i + start] = src[i];
+  }
+}
 
 void report(void *args){
   size_t *count, *size;
@@ -27,6 +35,9 @@ void report(void *args){
     printf("PROCESSO: %ld%% CONCLUIDO\r", 100*(*count)/(*size));
     usleep(750);
   }
+}
+
+void thread_routine(void *args){
 }
 
 void no_threads(size_t sizein, FILE* in, FILE* out, uint8_t *k, uint8_t n){
@@ -45,29 +56,60 @@ void no_threads(size_t sizein, FILE* in, FILE* out, uint8_t *k, uint8_t n){
 }
 
 void only_reporter(size_t sizein, FILE* in, FILE* out, uint8_t *k, uint8_t n){
+#ifdef __unix__
   uint8_t buffer[16];
   uint8_t tmp[16];
+  size_t qnt;
   size_t count = 0;
   char done = 0;
   pthread_t thread;
+  float blk_qnt_abs = (double)sizein / 16;
+  size_t blk_qnt_int = (size_t)blk_qnt_abs;
   void* args[] = {&count, &sizein, &done};
   
   pthread_create(&thread, NULL, (void*)report, (void*)args);
-  do{
-    size_t qnt;
+  for(count = 0; count < blk_qnt_int * 16; count += 16){
     qnt = fread(&buffer, 1, 16, in);
-    if(feof(in))
-      buffer[15] = qnt;
     ciph(tmp, buffer, k, n);
     fwrite(tmp, 1, 16, out);
-    count += 16;
-  } while(!feof(in));
+  }
+  uint8_t last_size = (blk_qnt_abs - blk_qnt_int) * 16;
+  qnt = fread(&buffer, 1, last_size, in);
+  buffer[15] = last_size;
+  ciph(tmp, buffer, k, n);
+  fwrite(tmp, 1, 16, out);
   done = 1;
   pthread_join(thread, NULL);
+#endif
 }
 
 void with_threads(size_t sizein, FILE* in, FILE* out, uint8_t *k, uint8_t n){
+#ifdef __unix__
+  uint8_t buffer[16];
+  uint8_t tmp[16];
+  size_t qnt;
+  size_t count = 0;
+  char done = 0;
+  float blk_qnt_abs = (double)sizein / 16;
+  size_t blk_qnt_int = (size_t)blk_qnt_abs;
+  void* args[] = {&count, &sizein, &done, NULL};
+  pthread_t* thread_stack[_CUSTOM_N_THREADS - 2];
+  uint8_t stack_size = 0;
+
+  //for(count = 0; count < blk_qnt_int;){
+    uint8_t* ciph_file = malloc(blk_qnt_int * 16 + 16);
+    //printf("\n%ld %ld\n", count, blk_qnt_int * 16);
+    for(count = 0; count < THREAD_HANDLE_SIZE / 16; count++){
+      qnt = fread(&buffer, 1, 16, in);
+      printf("\n%ld\n", qnt);
+      ciph(tmp, buffer, k, n);
+      memcopy(ciph_file, tmp, count * 16, 16);
+    }
+    
+    //free(ciph_file);
+  //}
   
+#endif
 }
 
 void cipher(char *s, char *d, uint8_t *k, uint8_t n){
@@ -90,7 +132,7 @@ void cipher(char *s, char *d, uint8_t *k, uint8_t n){
   sizein = ftell(in);
   fseek(in, 0, SEEK_SET);
   printf("PROCESSO: 0%% CONCLUIDO\r");
-  switch(NCORE){
+  switch(_CUSTOM_N_THREADS){
     case 0:
       exit(1);
     case 1:
@@ -102,7 +144,7 @@ void cipher(char *s, char *d, uint8_t *k, uint8_t n){
       only_reporter(sizein, in, out, k, n);
       break;
     default:
-      only_reporter(sizein, in, out, k, n);
+      with_threads(sizein, in, out, k, n);
       break;
   }
   printf("PROCESSO: 100%% CONCLUIDO\n\n");
@@ -114,7 +156,7 @@ int main(int argc, char **argv){
   size_t n = strlen(argv[3]);
   setlocale(LC_ALL, "portuguese");
   
-  if(n != 16 && n !=24 && n != 32){
+  if(n != 16 && n != 24 && n != 32){
     printf("ERRO: A chave deve ter 16, 24, ou 32 digitos!\n");
     exit(EXIT_FAILURE);
   }

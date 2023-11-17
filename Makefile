@@ -33,3 +33,6 @@ ex2_ciph:
 
 ex2_deciph:
 	bin/$(DECIPH_BIN) examples/ciph/$(CIPH_FILE2) examples/output/$(EXAMPLE_DECIPH_OUTPUT2) $(EXAMPLE_KEY)
+
+clean:
+	rm -f bin/* examples/ciph/* examples/output/*

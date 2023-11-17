@@ -1,8 +1,17 @@
 #include <string.h>
 #include <locale.h>
-#include <pthread.h>
-#include <unistd.h>
 #include "../lib/aes.h"
+
+#ifdef __unix__
+  #include <unistd.h>
+  #include <pthread.h>
+  #define _CUSTOM_N_THREADS sysconf(_SC_THREADS) ? sysconf(_SC_NPROCESSORS_CONF) ? sysconf(_SC_NPROCESSORS_CONF) : 1 : 1
+
+#elif defined(_WIN32) || defined(WIN32)
+  #define OS_Windows
+  #include <windows.h>
+  #define _CUSTOM_N_THREADS 1
+#endif
 
 void report(void *args){
   size_t *count, *size;

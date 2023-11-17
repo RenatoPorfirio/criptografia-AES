@@ -1,2 +1,2 @@
 # criptografia-AES
-implementação de biblioteca de criptografia AES e códigos de criptografia no modelo ECB
+implementação de biblioteca de criptografia AES e códigos de criptografia no modelo ECB (Em desenvolvimento)
